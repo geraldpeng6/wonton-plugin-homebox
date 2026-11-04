@@ -331,7 +331,6 @@ x-wonton:
 | --- | --- |
 | `icon` | 包里的 PNG 或 SVG；规则见规范的[图标和截图](https://github.com/geraldpeng6/wonton-docs/blob/main/plugin-spec.md#图标和截图)及[图标用什么](https://github.com/geraldpeng6/wonton-docs/blob/main/plugin-spec.md#图标用什么) |
 | `screenshots` | 仓库里 1 到 6 张 PNG 或 JPEG，每张不超过 1 MiB，长边建议至少 1280，横屏竖屏不要混着用。不算插件包 |
-| `category` | `ai`、`agent`、`photos`、`media`、`files`、`documents`、`productivity`、`communication`、`home`、`network`、`security`、`developer`、`downloads`、`tools` 之一；`system` 只给系统插件 |
 | `author` | 插件包的作者：`name`，可选 `url`（HTTPS） |
 | `homepage` | 应用的主页，HTTPS |
 | `license` | 应用的许可证，SPDX 表达式，如 `AGPL-3.0-only`。插件包自己的许可证写在仓库的 LICENSE 里，从模板新建时换成作者自己的名字和年份 |
@@ -340,7 +339,7 @@ x-wonton:
 | `about` | 详细介绍，多语言纯文本，空行分段，每种语言不超过 4000 个字符 |
 | `release_notes` | 这个版本的更新说明，多语言纯文本，每种语言不超过 2000 个字符，升级提示里显示；数据迁移不可逆时要写明 |
 
-官方商店要求有 `icon`、`category`、`license`、`author` 和 `notices`。
+官方商店要求有 `icon`、`license`、`author` 和 `notices`。
 
 `NOTICE` 跟着插件包保存和分发，核心重新编码图标时也不留元数据，所以图标的许可只能写在这里：
 
@@ -473,7 +472,7 @@ scripts/check.sh
 - 提醒（退出码 0）：镜像没有按摘要固定，长期运行的服务没有健康检查，没有图标，图标的角是透明的，截图太小或横竖混用。
 
 `scripts/check.sh --official` 按官方商店的要求：前三项提醒（镜像没按摘要固定、没有健康检查、没有图标）也算不合格，
-还要有 `category`、`license` 和 `author`。
+还要有 `license` 和 `author`。
 
 ## 发布
 

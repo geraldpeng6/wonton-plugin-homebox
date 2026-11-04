@@ -9,7 +9,9 @@ services:
     user: "${PUID}:${PGID}"
     environment:
       HBOX_MODE: production
-      # 数据全在 /data：SQLite 库、附件和缩略图（上游 Dockerfile 的约定），挂进插件数据目录。
+      # 数据全在 /data：SQLite 库（下面两条是上游 Dockerfile 里的 ENV，写显了免得读镜像才知道）和附件
+      # （存储根 file:/// 加前缀 data），挂进插件数据目录。
+      HBOX_STORAGE_CONN_STRING: "file:///?no_tmp_dir=true"
       # 没申请出网：关掉启动时的版本检查，免得每次启动记一条连不上 GitHub 的错误。
       HBOX_OPTIONS_GITHUB_RELEASE_CHECK: "false"
       # 只经 OIDC 用，不给注册和密码登录留入口。
