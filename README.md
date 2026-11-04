@@ -1,10 +1,10 @@
 # 云吞插件模板
 
 云吞（Wonton）的插件就是一个 `docker-compose.yml`，顶层多一个 `x-wonton` 字段，写明插件在云吞里的身份、网页入口和要的
-权限。一个插件一个 Git 仓库，仓库根目录就是插件包，发布就是打 tag。主人在 App 里装上插件，核心按清单起容器、接好登录，
+权限。一个插件一个 Git 仓库，仓库根目录就是插件包，发布就是打 tag。用户在 App 里装上插件，核心按清单起容器、接好登录，
 插件的网页在 App 里作为小程序打开。
 
-这个仓库是模板：一个能装上的示例插件（nginx 显示一个向主人问好的网页），加上检查、开发环境和发布三个脚本。从这个模板
+这个仓库是模板：一个能装上的示例插件（nginx 显示一个向用户问好的网页），加上检查、开发环境和发布三个脚本。从这个模板
 新建仓库，照着下面把示例换成你的应用。
 
 ## 准备
@@ -28,7 +28,7 @@ scripts/dev.sh install
 ```
 
 `up` 在本机起一套云吞，打印它的地址。示例（实例名取自目录名加 4 位随机数，端口随机）是
-`http://template3f2a.wonton.localhost:21234/`。浏览器打开，用 `scripts/dev.sh token` 输出的主人令牌登录。`install` 先列出
+`http://template3f2a.wonton.localhost:21234/`。浏览器打开，用 `scripts/dev.sh token` 输出的用户令牌登录。`install` 先列出
 插件要的权限，确认后装上，打印插件网页的地址。
 
 示例网页经 `sso: proxy` 拿到用户名，打开就是“你好，<用户名>”。换成真实应用时，把示例的 `description`、`about`、`tags`
@@ -83,7 +83,7 @@ x-wonton:
   官方插件。
 - `title`、`description` 至少写 `zh` 和 `en`。
 - `permissions` 必填，不要权限时写空列表。
-- `requirements` 可选：`arch`（如 `[amd64, arm64]`，和主人的服务器架构不符时装不上）、`memory`（如 `2G`）、
+- `requirements` 可选：`arch`（如 `[amd64, arm64]`，和用户的服务器架构不符时装不上）、`memory`（如 `2G`）、
   `gpu`（`required`（默认）或 `optional`，还要申请 `devices.gpu` 并写 `gpu.services`，见第 6 步）。
 - 插件的设置做在插件自己的网页里。清单的 `settings`（给 App 渲染原生表单的 JSON Schema）是预留的。
 - 清单里有未知字段时装不上：拼错的字段不会被悄悄忽略。
@@ -135,15 +135,15 @@ docker buildx imagetools inspect nginx:1.30.6-alpine
   `WONTON_OIDC_CLIENT_ID`、`WONTON_OIDC_CLIENT_SECRET` 交给应用；不支持发现文档的应用另有
   `WONTON_OIDC_AUTH_URL`、`WONTON_OIDC_TOKEN_URL`、`WONTON_OIDC_USERINFO_URL`。应用在令牌端点出示密钥的方式由
   `oidc.token_endpoint_auth_method` 决定：`client_secret_basic`（默认）或 `client_secret_post`。可以申请的 scope 有
-  `openid`、`profile`、`email`、`groups`（主人是 `["owner"]`）、`offline_access`。
+  `openid`、`profile`、`email`、`groups`（用户是 `["owner"]`）、`offline_access`。
 - `proxy`：应用不支持 OIDC，但认反向代理传来的用户名（Navidrome、Paperless-ngx、Grafana 的 auth proxy）或一个固定的
-  密钥时用。网关认出主人后，在转发给插件的请求上加上 `proxy.headers` 或 `proxy.cookies`，两项至少写一项。值里可以用
+  密钥时用。网关认出用户后，在转发给插件的请求上加上 `proxy.headers` 或 `proxy.cookies`，两项至少写一项。值里可以用
   `{user}`、`{name}`（显示名）、`{email}` 和 `{secret:<名字>}`（插件密钥里由核心生成、至少 16 字节的一项，见第 8 步），
   其余文字原样保留；Cookie 的值只能用 `{secret:…}` 和固定文字。网关先删掉客户端发来的同名请求头和 Cookie，再注入凭据。
   用请求头认人的应用只信任 `${WONTON_CORE_ADDRESS}/32`，不能信任整个网段。请求头和 Cookie 限制、可信代理条件见规范的
   [网关代登录](https://github.com/geraldpeng6/wonton-docs/blob/main/plugin-spec.md#网关代登录sso-proxy)。
-- `none`（默认）：网关只校验登录，应用保留自己的登录，或者本来就不需要登录。新插件默认这样：装好后第一次打开，主人在应用里
-  自己注册管理员。插件网页仍然在网关的登录后面，只有主人打得开注册页面。
+- `none`（默认）：网关只校验登录，应用保留自己的登录，或者本来就不需要登录。新插件默认这样：装好后第一次打开，用户在应用里
+  自己注册管理员。插件网页仍然在网关的登录后面，只有用户打得开注册页面。
 
 SSO 的接入条件见规范的[网页入口与单点登录](https://github.com/geraldpeng6/wonton-docs/blob/main/plugin-spec.md#网页入口与单点登录)：
 不能依赖脚本预建账号、改应用数据或每次启动核对，做不到就用 `none`。身份变量的授权另见第 7 步。
@@ -163,14 +163,14 @@ services:
   拒绝安装），属主看挂载它的服务的 `user`：没写或是 root 时交给 `PUID:PGID`（以 root 启动、再按 `PUID`/`PGID` 降权的镜像
   就是这样，如 LinuxServer.io 的镜像）；写成数字的 `uid:gid` 时交给它（镜像固定以某个 uid 运行时写上它）；写用户名或只写
   uid 时装不上，几个服务以不同的属主挂载同一个目录时也装不上。能以任意 uid 运行的镜像写 `user: "${PUID}:${PGID}"`，
-  宿主上的文件就归主人的用户。核心只改这些目录本身的属主，不递归改里面已有的文件。
+  宿主上的文件就归用户的用户。核心只改这些目录本身的属主，不递归改里面已有的文件。
 - 开发环境里 `${WONTON_APP_DATA}` 是 `.wonton/data/apps/<slug>/`，可以直接看插件写了什么。
 - 也可以用命名卷：在顶层 `volumes` 里声明，Docker 里叫 `wonton-<slug>--<卷名>`。同名卷已经存在、属于本插件（上次卸载时
   保留的数据）时直接复用；属于别的插件或不是核心创建的时拒绝安装。
 - 共享文件夹（照片、文档、音乐……）要在 `permissions` 里申请 `storage.share.<名称>:read` 或 `:write`，挂
   `${WONTON_SHARE_<名称大写>}`。只读的必须写 `:ro`，而且只能挂整个文件夹，不能挂子目录。
 - 只能挂这几种宿主路径，不能有 `..`，不支持相对路径；同一个插件的绑定挂载不能一个套着另一个。
-- 卸载时默认保留数据（数据目录、命名卷、插件密钥），再装时接着用；主人选了删除数据才删。共享文件夹永远不删。
+- 卸载时默认保留数据（数据目录、命名卷、插件密钥），再装时接着用；用户选了删除数据才删。共享文件夹永远不删。
 
 ### 5. 网络
 
@@ -189,7 +189,7 @@ services:
   ```
 
   宿主端口和容器端口相同，不做映射；`protocol` 是 `tcp`（默认）或 `udp`。`lan` 和 `network.lan` 必须同时声明。
-  不能列 `mcp` 的 TCP 端口；`webui` 的端口可以列入，由主人决定是否开放。`lan_webui` 开关及风险、其他限制和地址规则见规范的
+  不能列 `mcp` 的 TCP 端口；`webui` 的端口可以列入，由用户决定是否开放。`lan_webui` 开关及风险、其他限制和地址规则见规范的
   [局域网](https://github.com/geraldpeng6/wonton-docs/blob/main/plugin-spec.md#局域网networklan)。
 - 插件网络不是信任边界，不能据此信任身份头。核心服务的地址以注入变量为准，不要自己拼；网络隔离和代理可达性见规范的
   [网络](https://github.com/geraldpeng6/wonton-docs/blob/main/plugin-spec.md#网络)。
@@ -203,8 +203,8 @@ services:
 | `models` | 经模型网关用大模型，注入 `WONTON_MODEL_*` |
 | `tools` | 经核心的 MCP 总线调用核心和其他插件的工具，注入 `WONTON_MCP_URL` |
 | `matrix.bot` | 以 Bot 的身份收发消息，注入 `WONTON_MATRIX_*` |
-| `owner.identity` | 获取主人的用户名和邮箱，使用 `spec: "0.3"`，注入条件见第 7 步 |
-| `notify` | 给主人发通知 |
+| `owner.identity` | 获取用户的用户名和邮箱，使用 `spec: "0.3"`，注入条件见第 7 步 |
+| `notify` | 给用户发通知 |
 | `network.egress` | 访问外网和局域网 |
 | `network.lan` | 在局域网上开放 `lan.ports` 列出的端口，高权限 |
 | `network.host` | 不开放（ADR-0019），局域网访问用 `network.lan`，高权限 |
@@ -221,7 +221,7 @@ services:
 `privileged`、`cap_add`、`security_opt`、`ipc: host`；要大的共享内存写 `shm_size`。`required` 而本机没有可用的显卡时装不上
 （`gpu_unavailable`）。
 
-安装时主人要确认清单里的全部权限，少一项多一项都装不上。只申请真用得到的：权限越少，主人越放心。
+安装时用户要确认清单里的全部权限，少一项多一项都装不上。只申请真用得到的：权限越少，用户越放心。
 
 ### 7. 注入的变量
 
@@ -232,8 +232,8 @@ services:
 | --- | --- |
 | `WONTON_APP_ID`、`WONTON_APP_DATA`、`TZ`、`PUID`、`PGID` | 总是 |
 | `WONTON_APP_URL` | 有 `webui`：插件网页的地址，不带末尾的 `/`，应用生成链接和回调地址时用 |
-| `WONTON_OWNER_NAME` | 申请 `owner.identity`：固定的主人用户名；旧清单兼容条件见下文 |
-| `WONTON_OWNER_EMAIL` | 同上，且用户填了邮箱；值是建容器时的快照。开发环境里 `scripts/dev.sh up` 替你填 |
+| `WONTON_OWNER_NAME` | 申请 `owner.identity`：固定的用户名；旧清单兼容条件见下文 |
+| `WONTON_OWNER_EMAIL` | 同上，且用户配了邮箱；值是建容器时的快照 |
 | `WONTON_SHARE_<名称>` | 申请了这个共享文件夹 |
 | `WONTON_OIDC_*` | `sso: oidc` |
 | `WONTON_CORE_ADDRESS` | `sso: proxy`：核心在本插件网络里的固定地址，用于应用的可信代理配置 |
@@ -244,12 +244,12 @@ services:
 | `WONTON_SECRET_<名字>` | `secrets` 里核心生成的项 |
 | `WONTON_BOT_NAME`、`WONTON_BOT_DATA` | `bots.services` 里的服务 |
 
-- v0.3 引用主人身份变量要申请 `owner.identity`，不能只靠 `oidc` 或 `proxy`；低于 v0.3 的旧清单保留 SSO 兼容注入。
+- v0.3 引用用户身份变量要申请 `owner.identity`，不能只靠 `oidc` 或 `proxy`；低于 v0.3 的旧清单保留 SSO 兼容注入。
   `sso: none` 也能申请，不要为拿变量开启 SSO。登录时从 OIDC 或代登录模板拿到的身份不受此权限控制，完整规则见规范的
   [安装时注入的变量](https://github.com/geraldpeng6/wonton-docs/blob/main/plugin-spec.md#安装时注入的变量)。
-- 主人身份以注入值为准：用户名用 `${WONTON_OWNER_NAME:?需要主人用户名}`，不写死 `owner`，也不按规则拼邮箱。
-  邮箱必需时用 `${WONTON_OWNER_EMAIL:?需要主人邮箱}`，可选时用 `${WONTON_OWNER_EMAIL:-}`。
-- 用户名装好后不变，应用按用户名或 OIDC 的 `sub` 认人，不按邮箱认；有数据的账号绝不删除。已有账号资料由主人在应用内修改，
+- 用户身份以注入值为准：用户名用 `${WONTON_OWNER_NAME:?需要用户名}`，不写死 `owner`，也不按规则拼邮箱。
+  邮箱必需时用 `${WONTON_OWNER_EMAIL:?需要用户邮箱}`，可选时用 `${WONTON_OWNER_EMAIL:-}`。
+- 用户名装好后不变，应用按用户名或 OIDC 的 `sub` 认人，不按邮箱认；有数据的账号绝不删除。已有账号资料由用户在应用内修改，
   插件不写启动同步或对账代码，资料来源与快照规则见上述规范。
 - 地址和令牌同样以注入值为准，主机名、端口和格式都可能变，不要自己拼。
 
@@ -349,13 +349,13 @@ README 的图标一节只留一句来源和商标说明，指向 `NOTICE`，不�
 ### 11. Agent、Bot、模型和工具
 
 - 要以 Bot 身份收发消息的插件申请 `matrix.bot`，可以用 `bot.display_name`（多语言）、`bot.avatar`（包里的图片）定显示名
-  和头像。核心替主人建好和 Bot 的加密私聊（`WONTON_MATRIX_HOME_ROOM`）；Bot 只接受 `WONTON_MATRIX_OWNER` 的指令。
+  和头像。核心替用户建好和 Bot 的加密私聊（`WONTON_MATRIX_HOME_ROOM`）；Bot 只接受 `WONTON_MATRIX_OWNER` 的指令。
   一个插件要几个 Bot 时用 `bots`，每个 Bot 一组容器。
 - `kind: agent` 的插件要写 `agent.protocol`：`matrix`（Agent 自己登录 Matrix，要申请 `matrix.bot`）或 `acp`（经 ACP
   桥接入）。
 - 用大模型的插件申请 `models`，只经注入的模型网关地址和凭据访问，不要自带第三方的 API key。
 - 给 Agent 提供工具的插件写 `mcp`（`service`、`port`、`path` 默认 `/mcp`，`transport: streamable-http`）；要调用工具的
-  插件申请 `tools`。工具在总线上叫 `<slug>__<工具名>`。没有标 `readOnlyHint: true` 的工具算敏感，总线先请主人确认；
+  插件申请 `tools`。工具在总线上叫 `<slug>__<工具名>`。没有标 `readOnlyHint: true` 的工具算敏感，总线先请用户确认；
   会改数据的工具不要标成只读。
 - 工具结果里的文件用 `resource_link` 块返回，给出 `uri`、`name`、`mimeType`、`size`，不要返回宿主路径：
 
@@ -386,12 +386,12 @@ README 的图标一节只留一句来源和商标说明，指向 `NOTICE`，不�
 | `scripts/dev.sh uninstall [--purge]` | 卸载；`--purge` 连插件的数据一起删 |
 | `scripts/dev.sh status` | 开发环境的服务和装着的插件 |
 | `scripts/dev.sh logs [<服务>]` | 跟着看核心的日志；给了插件的服务名就看那个服务的 |
-| `scripts/dev.sh token` | 主人令牌 |
-| `scripts/dev.sh web [--jar <文件>] [--fresh] [<路径> [<curl 参数>…]]` | 以主人的身份请求插件网页上的地址（默认 `/`），其余参数交给 curl：没有浏览器时验证网页和接口。默认沿用 `session` 的会话，能带着它走完应用自己的登录链 |
-| `scripts/dev.sh session [--new]` | 建立（`--new` 重建）主人会话，cookie 留在 `.wonton/session.cookies` |
+| `scripts/dev.sh token` | 用户令牌 |
+| `scripts/dev.sh web [--jar <文件>] [--fresh] [<路径> [<curl 参数>…]]` | 以用户的身份请求插件网页上的地址（默认 `/`），其余参数交给 curl：没有浏览器时验证网页和接口。默认沿用 `session` 的会话，能带着它走完应用自己的登录链 |
+| `scripts/dev.sh session [--new]` | 建立（`--new` 重建）用户会话，cookie 留在 `.wonton/session.cookies` |
 | `scripts/dev.sh mcp list` | Bot 经 MCP 总线能调到的工具（JSON），在 Hermes gateway 容器里用官方 SDK 执行 |
 | `scripts/dev.sh mcp call <工具> [<JSON>]` | 经 MCP 总线调用工具，参数是 JSON 对象，默认 `{}` |
-| `scripts/dev.sh smoke` | 合并前的端到端冒烟：装得上、网页打得开、主人身份能用、工具 Bot 调得到，任何 FAIL 退出非 0 |
+| `scripts/dev.sh smoke` | 合并前的端到端冒烟：装得上、网页打得开、用户身份能用、工具 Bot 调得到，任何 FAIL 退出非 0 |
 | `scripts/dev.sh pair` | 终端里出配对二维码，App 扫码连上这套开发环境 |
 | `scripts/dev.sh down` | 停下，数据都留着 |
 | `scripts/dev.sh purge` | 删掉整个开发环境 |
@@ -433,7 +433,7 @@ README 的图标一节只留一句来源和商标说明，指向 `NOTICE`，不�
 - `scripts/dev.sh status` 列出插件的状态：`running healthy` 是每个长期运行的服务都有健康检查而且都通过了；
   `running unknown` 是只知道在运行（有服务没有健康检查，或者核心重启后还没检查通过）；`degraded` 后面是原因。核心在
   安装时和每次启动时检查，两次检查之间不盯着插件，容器停了要看 `docker ps`。
-- 管理接口用主人令牌调：
+- 管理接口用用户令牌调：
 
   ```bash
   curl -H "Authorization: Bearer $(scripts/dev.sh token)" http://<实例名>.wonton.localhost:<端口>/_wonton/api/plugins
@@ -478,12 +478,12 @@ scripts/check.sh
    构建、推送并按摘要写回，然后打 tag `v<版本>`，推送当前分支和 tag。示例只用上游的 nginx 镜像，没有 `images/`，直接
    打 tag。
 
-发布过的 tag 不要移动：已经装上的不受影响，但核心会提示主人这个 tag 被改过。带预发布后缀的版本（如 `v1.2.0-beta.1`）只能
+发布过的 tag 不要移动：已经装上的不受影响，但核心会提示用户这个 tag 被改过。带预发布后缀的版本（如 `v1.2.0-beta.1`）只能
 按 tag 明确安装，不进商店，也不作为升级提示。
 
 插件要用自己构建的镜像时，把 Dockerfile 放在 `images/<名字>/`，compose 里写 `image: ghcr.io/<你>/<名字>:<版本>`。
 `publish.sh` 用 `docker buildx` 构建 linux/amd64 和 linux/arm64 的镜像，推上去，把 compose 里这一行改成新版本的摘要再
-提交。这需要能构建多架构镜像的 buildx，和 `docker login` 登录镜像仓库；镜像要公开，主人的服务器才拉得到。核心不构建镜像，
+提交。这需要能构建多架构镜像的 buildx，和 `docker login` 登录镜像仓库；镜像要公开，用户的服务器才拉得到。核心不构建镜像，
 所以 compose 里不能写 `build`。开发时先在本机构建同名的镜像（`docker build -t ghcr.io/<你>/<名字>:<版本> images/<名字>`），
 本机有这个镜像时核心不去拉取。
 
