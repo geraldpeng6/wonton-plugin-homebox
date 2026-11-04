@@ -7,7 +7,7 @@
 #       要断言多个工具时改成写 mcp_check；调用前要备数据时写 before_mcp。
 # 装之前要准备（如先配出口代理）：写 before_install。
 
-web_assert() { grep -qi 'homebox'; }   # 首页是 SPA 外壳，标题里是产品名
+web_assert() { grep -qi 'homebox-frontend'; }   # 首页是 SPA 外壳，内嵌配置里有 homebox-frontend
 
 identity_check() { # 走应用专用的 OIDC 端点换会话，再调它自己的“当前用户”接口
   local final me

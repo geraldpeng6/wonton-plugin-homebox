@@ -23,6 +23,8 @@ services:
       HBOX_OIDC_CLIENT_SECRET: ${WONTON_OIDC_CLIENT_SECRET}
       # 打开网页直接跳 OIDC 登录。
       HBOX_OIDC_AUTO_REDIRECT: "true"
+      # API 密钥的哈希混入密钥（上游要求 ≥32 字节，必须跨重启稳定），由核心生成、保管。
+      HBOX_AUTH_API_KEY_PEPPER: ${WONTON_SECRET_API_KEY_PEPPER}
     volumes:
       - ${WONTON_APP_DATA}:/data
     healthcheck:
@@ -72,6 +74,9 @@ x-wonton:
     oidc:
       redirect_paths: [/api/v1/users/login/oidc/callback]
   permissions: []
+  secrets:
+    api_key_pepper:
+      generate: { bytes: 32 }
   # 上游没写最低内存；requirements.memory 按开发环境实测空闲占用取整（见提交时的验证记录）。镜像支持 amd64 和 arm64。
   requirements:
     arch: [amd64, arm64]
