@@ -1,61 +1,78 @@
-# 示例插件：nginx 显示一个网页，向登录的人问好。照着 README 的“写插件”换成你的应用。
+name: homebox
+
 services:
-  web:
-    # 镜像按摘要固定（多架构镜像写清单列表的摘要），标签只给人看。
-    image: nginx:1.30.6-alpine@sha256:0e52bd054126cdc040b1276c0af347aeb02a41b9cfe305d6094767ac30e97949
-    # 包里的文件经 configs 交给容器（核心在启动前写进去），不能用卷挂载。
-    configs:
-      - source: site
-        target: /etc/nginx/conf.d/default.conf
-      - source: page
-        target: /usr/share/nginx/html/index.html
+  homebox:
+    # 上游 ghcr 只发 latest/main/nightly 和旧 0.11.x 标签，当前版没有版本标签，只能按 :latest 的
+    # 清单列表摘要固定（标签只给人看）；装的时候核对 /api/v1/status 里的版本和发布说明一致。
+    image: ghcr.io/sysadminsmedia/homebox:latest@sha256:9d0b64776c694f018c0ca06faf52105a33ca376024f46bb58e6ab0e2b728bb61
+    # 上游镜像默认 root，这里以主人的用户跑：SQLite 和附件对属主无要求，宿主上的文件归主人。
+    user: "${PUID}:${PGID}"
+    environment:
+      HBOX_MODE: production
+      # 数据全在 /data：SQLite 库、附件和缩略图（上游 Dockerfile 的约定），挂进插件数据目录。
+      # 没申请出网：关掉启动时的版本检查，免得每次启动记一条连不上 GitHub 的错误。
+      HBOX_OPTIONS_GITHUB_RELEASE_CHECK: "false"
+      # 只经 OIDC 用，不给注册和密码登录留入口。
+      HBOX_OPTIONS_ALLOW_REGISTRATION: "false"
+      HBOX_OPTIONS_ALLOW_LOCAL_LOGIN: "false"
+      # 网关会重设 X-Forwarded-*，据此生成 OIDC 回调地址。
+      HBOX_OPTIONS_TRUST_PROXY: "true"
+      HBOX_OIDC_ENABLED: "true"
+      HBOX_OIDC_ISSUER_URL: ${WONTON_OIDC_ISSUER}
+      HBOX_OIDC_CLIENT_ID: ${WONTON_OIDC_CLIENT_ID}
+      HBOX_OIDC_CLIENT_SECRET: ${WONTON_OIDC_CLIENT_SECRET}
+      # 打开网页直接跳 OIDC 登录。
+      HBOX_OIDC_AUTO_REDIRECT: "true"
+    volumes:
+      - ${WONTON_APP_DATA}:/data
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:7745/api/v1/status"]
       interval: 30s
       timeout: 5s
-      start_period: 30s
+      retries: 5
+      start_period: 60s
       start_interval: 1s
-
-configs:
-  site:
-    file: web/default.conf
-  page:
-    file: web/index.html
 
 x-wonton:
   spec: "0.4"
-  # 换成你自己的：反向域名形式，装上以后不能改。
-  id: app.example.hello
-  version: 0.1.1
+  id: software.homebox
+  version: 0.1.0
   kind: app
-  title: { zh: 你好, en: Hello }
-  description: { zh: 向登录的人问好的示例网页, en: An example page that greets whoever is signed in }
+  title: { en: HomeBox }
+  description:
+    zh: 家庭物品清单：记下东西放在哪、拍了什么照片、值多少钱
+    en: "Home inventory: track what you own, where it is and what it's worth"
   icon: icon.svg
   notices: [NOTICE]
   screenshots: [screenshots/home.png]
-  author: { name: Example }
-  homepage: https://nginx.org
-  # 应用（这里是 nginx）的许可证；插件包自己的许可证写在仓库的 LICENSE 里。
-  license: BSD-2-Clause
+  author: { name: geraldpeng6, url: https://github.com/geraldpeng6 }
+  homepage: https://homebox.software
+  license: AGPL-3.0-only
   tags:
-    zh: [工具]
-    en: [Tools]
+    zh: [物品清单, 家庭]
+    en: [Inventory, Home]
   about:
     zh: |
-      一个示例网页：登录以后，页面会向你问好。新建插件时可以照着改。
+      把家里的东西登记成清单：每件物品记下放在哪个位置、拍了什么照片、值多少钱、保修到什么时候。位置一层层往下分，
+      每个位置和物品都有自己的资产编号和二维码，打印出来贴上，扫码就能找到。
+
+      清单存在自己家里，登录走云吞的身份，打开就是自己的清单。
     en: |
-      An example page: once you are signed in, the page says hello. Copy it as a starting point for a new plugin.
-  release_notes: { zh: 名字和说明更新。, en: Product name and description update. }
+      Register what you own as an inventory: for each item note where it is, what it looks like, what it's worth
+      and when the warranty ends. Locations nest level by level; every location and item gets an asset ID and a
+      QR code you can print and stick on, so finding things is a scan away.
+
+      Your inventory stays at home. Sign-in goes through Wonton's identity, and it opens straight to your own
+      inventory.
+  release_notes: { zh: 第一版。, en: First release. }
   webui:
-    service: web
-    port: 80
-    # 应用不认 OIDC 时，由网关在请求上加上用户名（README 的“网页入口和登录”）。
-    sso: proxy
-    proxy:
-      headers:
-        Remote-User: "{user}"
+    service: homebox
+    port: 7745
+    sso: oidc
+    oidc:
+      redirect_paths: [/api/v1/users/login/oidc/callback]
   permissions: []
-  # 上游 nginx 官方镜像，amd64 和 arm64 都有；上游没写最低内存，按本机空闲实测取整（实测约 24M，取 64M）。
+  # 上游没写最低内存；requirements.memory 按开发环境实测空闲占用取整（见提交时的验证记录）。镜像支持 amd64 和 arm64。
   requirements:
     arch: [amd64, arm64]
-    memory: 64M
+    memory: 256M
