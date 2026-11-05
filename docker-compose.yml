@@ -30,7 +30,8 @@ services:
     volumes:
       - ${WONTON_APP_DATA}:/data
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:7745/api/v1/status"]
+      # /api/v1/status 只收 GET（HEAD 返回 405），不能用 --spider。
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:7745/api/v1/status"]
       interval: 30s
       timeout: 5s
       retries: 5
