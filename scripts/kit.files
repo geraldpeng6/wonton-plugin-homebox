@@ -1,0 +1,8 @@
+scripts/dev.sh
+scripts/check.sh
+scripts/publish.sh
+scripts/lib.sh
+scripts/smoke.sh
+scripts/mcp_client.py
+scripts/kit.files
+.github/workflows/check.yml

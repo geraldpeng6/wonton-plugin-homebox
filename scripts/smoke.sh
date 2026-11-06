@@ -49,7 +49,7 @@ cleanup() {
   image="$(sed -n 's/^WONTON_CORE_IMAGE=//p' "$copy/.wonton/.env" 2>/dev/null | tail -1)"
   if [[ -f "$copy/.wonton/.env" ]]; then
     say "清理实例 $instance"
-    (cd "$copy" && echo y | nice -n 19 timeout 900 scripts/dev.sh purge) >>"$LOG" 2>&1
+    (cd "$copy" && nice -n 19 timeout 900 scripts/dev.sh purge --yes) >>"$LOG" 2>&1
   fi
   docker ps -aq --filter "label=wonton.instance=$instance" | xargs -r docker rm -f >/dev/null 2>&1
   docker network ls -q --filter "label=wonton.instance=$instance" | xargs -r docker network rm >/dev/null 2>&1
@@ -177,7 +177,6 @@ core="wonton-$instance--core"
 SMOKE_OWNER="$(docker exec "$core" cat "$(read_env WONTON_DATA_DIR)/core/owner.json" 2>/dev/null | jq -r '.username // empty')"
 SMOKE_OWNER="${SMOKE_OWNER:-owner}"
 SMOKE_OWNER_EMAIL="$(read_env WONTON_OWNER_EMAIL)"
-SMOKE_BASE="$SMOKE_BASE" SMOKE_TOKEN="$SMOKE_TOKEN" SMOKE_OWNER="$SMOKE_OWNER" SMOKE_OWNER_EMAIL="$SMOKE_OWNER_EMAIL"
 SMOKE_PLUGIN_ID="$plugin_id" SMOKE_SLUG="$slug" SMOKE_SSO="$sso" SMOKE_MCP="$has_mcp"
 export SMOKE_DIR SMOKE_INSTANCE SMOKE_JAR SMOKE_TOOLS SMOKE_BASE SMOKE_TOKEN SMOKE_OWNER SMOKE_OWNER_EMAIL
 export SMOKE_PLUGIN_ID SMOKE_SLUG SMOKE_SSO SMOKE_MCP
@@ -297,7 +296,7 @@ else
       fail 工具Bot调得到 "mcp_check 失败，见 $LOG 末尾：$(tail -c 200 "$LOG" | tr '\n' ' ')"
     fi
   elif [[ "$n_mine" -lt 1 ]]; then
-    fail 工具Bot调得到 "tools/list 没有 $slug__ 前缀工具"
+    fail 工具Bot调得到 "tools/list 没有 ${slug}__ 前缀工具"
   elif [[ -z "$MCP_TOOL" ]]; then
     pass 工具Bot调得到 "tools/list 有本插件工具（探测没指定只读工具）"
   else
