@@ -37,7 +37,9 @@ data_write() {
   _homebox_login || return 1
   types="$(curl -sS --noproxy '*' --fail-with-body -b "$SMOKE_JAR" -H 'Accept: application/json' \
     "$SMOKE_WEB_URL/api/v1/entity-types")" || { echo "读实体类型失败：$types"; return 1; }
-  type_id="$(jq -er '((.items // .) | [.[] | select(.isLocation != true)] | first | .id // empty)' <<<"$types")" ||
+  # 上游 OpenAPI：GET /api/v1/entity-types 返回 EntityTypeSummary 的裸数组（实测 v0.27.1 如此），
+  # .items? 兼容带 items 包装的历史形状；// 不吞错误，必须用 ? 压掉对数组的错误索引。
+  type_id="$(jq -er '(.items? // .) | [.[]? | select(.isLocation != true)][0].id // empty' <<<"$types")" ||
     { echo "没有可用的条目类型：$types"; return 1; }
   resp="$(curl -sS --noproxy '*' --fail-with-body -b "$SMOKE_JAR" -H 'Content-Type: application/json' \
     -d '{"name":"'"$marker"'","entityTypeId":"'"$type_id"'"}' "$SMOKE_WEB_URL/api/v1/entities")" ||
