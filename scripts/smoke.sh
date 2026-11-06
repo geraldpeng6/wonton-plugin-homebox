@@ -84,16 +84,21 @@ finish() {
 }
 trap finish EXIT
 
-# 全机最多 2 套插件验证栈，其余排队（只数别人的，自己还没起）。
-foreign="$(docker ps --filter 'label=wonton.instance' --format '{{.Label "wonton.instance"}}' | sort -u | wc -l)"
-waited=0
-while ((foreign >= 2)); do
-  ((waited == 0)) && say "已有 $foreign 套验证栈在跑，排队等待"
-  ((waited >= 45)) && die "等了 45 分钟还是 $foreign 套验证栈，排队放弃"
-  sleep 60
-  waited=$((waited + 1))
-  foreign="$(docker ps --filter 'label=wonton.instance' --format '{{.Label "wonton.instance"}}' | sort -u | wc -l)"
-done
+# 共用一台 Docker 时可以限制同时跑的验证栈：WONTON_SMOKE_MAX_STACKS=<套数>（只数别人的，自己还没起），
+# WONTON_SMOKE_WAIT_MINUTES 是最多等多久（默认 45）。不设就不排队：自己的开发环境也算一套，默认限制会挡住只有一个人的主机。
+if [[ -n "${WONTON_SMOKE_MAX_STACKS:-}" ]]; then
+  [[ "$WONTON_SMOKE_MAX_STACKS" =~ ^[1-9][0-9]*$ ]] || die "WONTON_SMOKE_MAX_STACKS 要是正整数：$WONTON_SMOKE_MAX_STACKS"
+  wait_minutes="${WONTON_SMOKE_WAIT_MINUTES:-45}"
+  [[ "$wait_minutes" =~ ^[0-9]+$ ]] || die "WONTON_SMOKE_WAIT_MINUTES 要是整数：$wait_minutes"
+  waited=0
+  while foreign="$(docker ps --filter 'label=wonton.instance' --format '{{.Label "wonton.instance"}}' | sort -u | wc -l)"
+    ((foreign >= WONTON_SMOKE_MAX_STACKS)); do
+    ((waited == 0)) && say "已有 $foreign 套验证栈在跑（上限 $WONTON_SMOKE_MAX_STACKS），排队等待"
+    ((waited >= wait_minutes)) && die "等了 $wait_minutes 分钟还是 $foreign 套验证栈，排队放弃（没有跑任何插件检查）"
+    sleep 60
+    waited=$((waited + 1))
+  done
+fi
 
 say "复制工作区（不动 .wonton）"
 mkdir "$copy"
