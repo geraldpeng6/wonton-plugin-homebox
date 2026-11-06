@@ -2,9 +2,10 @@ name: homebox
 
 services:
   homebox:
-    # 上游 ghcr 只发 latest/main/nightly 和旧 0.11.x 标签，当前版没有版本标签，只能按 :latest 的
-    # 清单列表摘要固定（标签只给人看）；装的时候核对 /api/v1/status 里的版本和发布说明一致。
-    image: ghcr.io/sysadminsmedia/homebox:latest@sha256:9d0b64776c694f018c0ca06faf52105a33ca376024f46bb58e6ab0e2b728bb61
+    # 上游在 ghcr 只发 latest/main/nightly（没有版本标签），在 Docker Hub 发版本标签；这里用 Docker Hub 的
+    # 版本标签 0.27.1 加清单列表摘要固定，摘要与此前 ghcr latest 固定的是同一份（逐字节相同）。
+    # 装好后核对 /api/v1/status 里的版本和发布说明一致。
+    image: docker.io/sysadminsmedia/homebox:0.27.1@sha256:9d0b64776c694f018c0ca06faf52105a33ca376024f46bb58e6ab0e2b728bb61
     # 上游镜像默认 root，这里以主人的用户跑：SQLite 和附件对属主无要求，宿主上的文件归主人。
     user: "${PUID}:${PGID}"
     environment:
@@ -41,7 +42,7 @@ services:
 x-wonton:
   spec: "0.4"
   id: software.homebox
-  version: 0.1.0
+  version: 0.1.1
   kind: app
   title: { en: HomeBox }
   description:
@@ -69,7 +70,7 @@ x-wonton:
 
       Your inventory stays at home. Sign-in goes through Wonton's identity, and it opens straight to your own
       inventory.
-  release_notes: { zh: 第一版。, en: First release. }
+  release_notes: { zh: "镜像改用上游的版本标签 0.27.1 固定（原来按浮动 latest 的摘要固定，内容相同，就是 2026-10-23 的安全版：上游修复了 NodeJS 的远程代码执行风险）。", en: "The image now pins upstream's version tag 0.27.1 (previously pinned by the digest of the floating latest tag — same content, the 2026-10-23 security release where upstream patched a NodeJS remote-code-execution risk)." }
   webui:
     service: homebox
     port: 7745
