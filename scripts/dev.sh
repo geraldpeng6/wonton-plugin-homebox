@@ -10,15 +10,18 @@
 #   scripts/dev.sh logs [<服务>]              跟着看核心的日志；给了插件的服务名就看那个服务的
 #   scripts/dev.sh token                      用户令牌：浏览器登录和调接口都用它
 #   scripts/dev.sh session [--new]            建立用户会话（--new 重建），cookie 存在 .wonton/session.cookies
-#   scripts/dev.sh web [--jar <文件>] [--fresh] [<路径> [<curl 参数>…]]
-#                                             以用户的身份请求插件网页上的地址（默认 /），默认沿用 session 的 cookie：
-#                                             没有浏览器时验证网页，也能带着同一个会话走完应用自己的登录链
+#   scripts/dev.sh web [--jar <文件>] [--fresh] [--sso] [<路径> [<curl 参数>…]]
+#                                             以用户的身份请求插件网页；--sso 会提交 JS 自动表单并跟完重定向
+#   scripts/dev.sh api <方法> <路径> [<curl 参数>…] 带用户令牌调用核心管理接口
+#   scripts/dev.sh egress <地址>                读取设置后用同样的 restarts 和直连网段设置出口代理
 #   scripts/dev.sh mcp list                   Bot 经 MCP 总线能调到的工具（JSON）
 #   scripts/dev.sh mcp call <工具> [<JSON>]   经 MCP 总线调用工具，参数是 JSON 对象，默认 {}
 #   scripts/dev.sh smoke                      对工作区的插件跑合并前的端到端冒烟：起一套一次性实例，跑完清理
 #   scripts/dev.sh pair                       在终端里出配对二维码，给 App 用
 #   scripts/dev.sh down                       停下核心，数据都留着；插件的容器由核心管，照常运行
-#   scripts/dev.sh purge                      删掉整个开发环境：插件的容器、网络、卷和 .wonton/
+#   scripts/dev.sh reset                      删掉当前实例的插件容器和网络，保留核心和 .wonton 数据
+#   scripts/dev.sh purge [--yes]              删掉整个开发环境；非交互执行必须带 --yes
+#   scripts/dev.sh kit-update [<ref>]          更新开发套件（默认 main），不需要 Docker
 #
 # 第一次 up 时可以用环境变量定下：WONTON_CORE_IMAGE（核心镜像，默认 ghcr.io/geraldpeng6/wonton-core:beta）、
 # WONTON_INSTANCE（实例名）、WONTON_PORT（网页端口，隧道用下一个端口）、WONTON_PULL=never（用本机构建的核心镜像，
@@ -37,7 +40,7 @@ local_docker() {
   local host="${DOCKER_HOST:-}"
   [[ -n "$host" ]] || host="$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null || true)"
   case "$host" in
-    ssh://* | tcp://*) die "Docker 在别的主机上（$host）：把仓库放到那台主机上，在那里执行（见 README 的“在远程主机上开发”）" ;;
+    ssh://* | tcp://*) die "Docker 在别的主机上（$host）：把仓库放到那台主机上，在那里执行（见 https://github.com/geraldpeng6/wonton-docs/blob/main/develop.md#在远程主机上开发）" ;;
   esac
 }
 
@@ -184,6 +187,34 @@ api() {
   curl -sS --noproxy '*' --fail-with-body -X "$method" \
     -H "Authorization: Bearer $owner" -H "Accept-Language: zh-CN,zh;q=0.9" \
     "$@" "$base_url$path"
+}
+
+api_command() {
+  [[ $# -ge 2 ]] || usage
+  need_env
+  api "$@"
+}
+
+egress_proxy() {
+  local address="${1:-}" current body result
+  [[ $# -eq 1 ]] || usage
+  need_env
+  current="$(api GET /_wonton/api/egress-proxy)" ||
+    die "读不到出口代理设置：$(error_text "$current")"
+  body="$(python3 - "$current" "$address" <<'PY'
+import json, sys
+
+settings = json.loads(sys.argv[1])
+print(json.dumps({
+    "url": sys.argv[2],
+    "direct_cidrs": settings["direct_cidrs"],
+    "restarts": [item["id"] for item in settings["restarts"]],
+}, ensure_ascii=False))
+PY
+  )" || die "看不懂核心回的出口代理设置：$current"
+  result="$(api PUT /_wonton/api/egress-proxy -H 'Content-Type: application/json' -d "$body")" ||
+    die "设置出口代理失败：$(error_text "$result")"
+  printf '%s\n' "$result"
 }
 
 # 要邮箱的插件装不上没填资料的核心。用户在 App 里填，开发环境没有 App，这里替他填；填过的不动。显示名用用户名，和没填过
@@ -342,13 +373,15 @@ plugin_web_url() {
   local id="$1" list
   list="$(api GET /_wonton/api/plugins)" || die "列不出插件：$(error_text "$list")"
   python3 - "$list" "$id" <<'PY'
+import urllib.parse
 import json, sys
 plugin = next((p for p in json.loads(sys.argv[1])["plugins"] if p["id"] == sys.argv[2]), None)
 if plugin is None:
     sys.exit(f"{sys.argv[2]} 还没装：先 scripts/dev.sh install")
 if not plugin.get("web_url"):
     sys.exit(f"{sys.argv[2]} 没有网页入口（清单里没写 webui）")
-print(plugin["web_url"])
+parts = urllib.parse.urlsplit(plugin["web_url"])
+print(f"{parts.scheme}://{parts.netloc}")
 PY
 }
 
@@ -356,9 +389,83 @@ session_jar() {
   echo "${WONTON_DEV_JAR:-$state/session.cookies}"
 }
 
-# 登进核心，再走一遍插件网页的登录跳转，拿到插件网页的会话。cookie 留在文件里给后面的请求（含应用自己的登录链）复用。
+# 应用用 JS 自动提交隐藏字段的 POST 表单时，取字段并提交，跟完 SSO 重定向。
+sso_form_login() {
+  local jar="$1" url="$2"
+  local method=GET request_url="$url" data="" page_file effective form action
+  for _ in $(seq 1 8); do
+    page_file="$(mktemp)"
+    if [[ "$method" == GET ]]; then
+      effective="$(curl -sS --noproxy '*' --fail-with-body -L -b "$jar" -c "$jar" \
+        -H 'Accept: text/html' -o "$page_file" -w '%{url_effective}' "$request_url")" || {
+        rm -f "$page_file"
+        die "读取 SSO 页面失败"
+      }
+    else
+      effective="$(curl -sS --noproxy '*' --fail-with-body -L -b "$jar" -c "$jar" \
+        -H 'Accept: text/html' -o "$page_file" -w '%{url_effective}' \
+        --data "$data" "$request_url")" || {
+        rm -f "$page_file"
+        die "提交 SSO 表单失败"
+      }
+    fi
+    form="$(python3 - "$page_file" "$effective" <<'PY'
+from html.parser import HTMLParser
+from urllib.parse import urlencode, urljoin
+import sys
+
+class Forms(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.current = None
+        self.forms = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "form" and self.current is None:
+            self.current = {"action": attrs.get("action", ""),
+                            "method": attrs.get("method", "post").lower(),
+                            "fields": []}
+        elif tag == "input" and self.current is not None:
+            name = attrs.get("name")
+            if name and attrs.get("type", "text").lower() == "hidden":
+                self.current["fields"].append((name, attrs.get("value", "")))
+
+    def handle_endtag(self, tag):
+        if tag == "form" and self.current is not None:
+            self.forms.append(self.current)
+            self.current = None
+
+page_file, base = sys.argv[1:]
+parser = Forms()
+with open(page_file, encoding="utf-8", errors="replace") as page:
+    parser.feed(page.read())
+for form in parser.forms:
+    if form["method"] != "post" or not form["fields"]:
+        continue
+    print(urljoin(base, form["action"]))
+    print(urlencode(form["fields"]))
+    break
+PY
+    )" || {
+      rm -f "$page_file"
+      die "解析 SSO 页面失败"
+    }
+    rm -f "$page_file"
+    [[ -n "$form" ]] || return 0
+    action="${form%%$'\n'*}"
+    data="${form#*$'\n'}"
+    [[ "$form" == *$'\n'* && -n "$action" ]] || die "SSO 表单缺少提交地址"
+    method=POST
+    request_url="$action"
+  done
+  die "SSO 表单重复出现，超过 8 次"
+}
+
+# 登进核心，再走一遍插件网页的登录跳转；--sso 还会跟完 JS 自动提交的隐藏字段表单。
 session_into() {
-  local jar="$1" new="$2" owner url
+  local jar="$1" new="$2" sso="${3:-}" owner url
+  [[ -n "$sso" ]] && new=1
   mkdir -p "$(dirname "$jar")"
   [[ -n "$new" ]] && rm -f "$jar"
   [[ -f "$jar" ]] && return 0
@@ -366,8 +473,12 @@ session_into() {
   url="$(plugin_web_url "$(plugin_id)")"
   curl -sS --noproxy '*' --fail-with-body -o /dev/null -c "$jar" --data-urlencode "token=$owner" \
     "$base_url/_wonton/login" || die "用户令牌登录不了核心"
-  curl -sS --noproxy '*' -o /dev/null -L -b "$jar" -c "$jar" -H 'Accept: text/html' "$url/" ||
-    die "走不通插件网页的登录跳转"
+  if [[ -n "$sso" ]]; then
+    sso_form_login "$jar" "$url/"
+  else
+    curl -sS --noproxy '*' -o /dev/null -L -b "$jar" -c "$jar" -H 'Accept: text/html' "$url/" ||
+      die "走不通插件网页的登录跳转"
+  fi
 }
 
 session() {
@@ -379,25 +490,25 @@ session() {
   esac
   need_env
   session_into "$(session_jar)" "$new"
-  echo "$(session_jar)"
+  session_jar
 }
 
-# 带用户会话请求插件网页，其余参数原样交给 curl。没登录的非网页请求网关回 401、不跳转，所以登录那一步要 Accept: text/html。
+# 带用户会话请求插件网页，其余参数原样交给 curl。`--sso` 会跟完应用登录页的隐藏字段表单。
 web() {
-  local path="/" jar fresh=""
+  local path="/" jar fresh="" sso="" url
   jar="$(session_jar)"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --jar) [[ $# -ge 2 ]] || usage; jar="$2"; shift 2 ;;
       --fresh) fresh=1; shift ;;
+      --sso) sso=1; shift ;;
       /*) path="$1"; shift; break ;;
       *) usage ;;
     esac
   done
   need_env
   [[ "$path" == /* ]] || usage
-  session_into "$jar" "$fresh"
-  local url
+  session_into "$jar" "$fresh" "$sso"
   url="$(plugin_web_url "$(plugin_id)")"
   curl -sS --noproxy '*' --fail-with-body -b "$jar" -c "$jar" "$@" "$url$path"
 }
@@ -426,13 +537,51 @@ pair() {
   "$state/wonton" pair
 }
 
+remove_instance_runtime() {
+  local label="label=wonton.instance=$instance" prefix="wonton-$instance--"
+  docker ps -a --filter "$label" --format '{{.ID}} {{.Names}}' |
+    while read -r id name; do
+      case "$name" in
+        "${prefix}core") ;;
+        "$prefix"*) printf '%s\n' "$id" ;;
+      esac
+    done | xargs -r docker rm -f >/dev/null
+  docker network ls --filter "$label" --format '{{.ID}} {{.Name}}' |
+    while read -r id name; do
+      case "$name" in
+        "$prefix"*) printf '%s\n' "$name" ;;
+      esac
+    done | while read -r network; do
+      # 核心接在每个插件网络上；不摘线就删不掉网络。
+      docker network disconnect -f "$network" "wonton-$instance--core" >/dev/null 2>&1 || true
+      docker network rm "$network" >/dev/null
+    done
+}
+
+reset_environment() {
+  [[ $# -eq 0 ]] || usage
+  need_env
+  remove_instance_runtime
+  echo "重置了实例 $instance（插件容器和网络已清理，数据保留）"
+}
+
+
 purge() {
-  local answer image
+  local yes="" answer image
+  case "${1:-}" in
+    '') ;;
+    --yes) yes=1 ;;
+    *) usage ;;
+  esac
+  [[ $# -le 1 ]] || usage
   [[ -f "$env_file" ]] || die "没有开发环境"
   load_settings
   forget_environment
-  read -r -p "删掉整个开发环境（实例 $instance），包括装着的插件和它们的数据？[y/N] " answer
-  [[ "$answer" == [yY] ]] || die "没删"
+  if [[ -z "$yes" ]]; then
+    [[ -t 0 ]] || die "非交互执行 purge 必须带 --yes；交互执行请运行 scripts/dev.sh purge"
+    read -r -p "删掉整个开发环境（实例 $instance），包括装着的插件和它们的数据？[y/N] " answer
+    [[ "$answer" == [yY] ]] || die "没删"
+  fi
   [[ ! -f "$state/compose.yaml" ]] || compose down --volumes --remove-orphans
   # 插件的资源由核心建，带着实例名的标签；别的核心建的没有这个标签，不会删到。
   local filter="label=wonton.instance=$instance"
@@ -444,6 +593,89 @@ purge() {
   docker run --rm --user 0 --entrypoint rm -v "$root:/repo" "$image" -rf /repo/.wonton
   echo "删掉了实例 $instance"
 }
+
+kit_commit() {
+  local ref="$1" refs sha name branch="" tag="" peeled="" head=""
+  refs="$(git ls-remote https://github.com/geraldpeng6/wonton-plugin-template.git \
+    "$ref" "$ref^{}" "refs/heads/$ref" "refs/tags/$ref" "refs/tags/$ref^{}")" ||
+    die "取不到开发套件的引用 $ref"
+  while read -r sha name; do
+    case "$name" in
+      "refs/heads/${ref#refs/heads/}") branch="$sha" ;;
+      "refs/tags/${ref#refs/tags/}") tag="$sha" ;;
+      "refs/tags/${ref#refs/tags/}^{}") peeled="$sha" ;;
+      HEAD) head="$sha" ;;
+    esac
+  done <<<"$refs"
+  [[ -z "$branch" || -z "$tag" ]] || die "开发套件的分支和 tag 同名：$ref，请写完整 refs/heads/ 或 refs/tags/ 引用"
+  sha="${branch:-${peeled:-${tag:-$head}}}"
+  # ls-remote 只列引用；完整提交 SHA 已经固定版本，后续下载仍逐个确认文件存在。
+  if [[ "$ref" =~ ^[0-9a-f]{40}$ ]]; then sha="$ref"; fi
+  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || die "找不到开发套件的引用 $ref"
+  printf '%s\n' "$sha"
+}
+
+kit_update() (
+  [[ $# -le 1 ]] || usage
+  need git curl
+  local origin sha stage path workflow
+  origin="$(git -C "$root" remote get-url origin 2>/dev/null || true)"
+  case "${origin%.git}" in
+    https://github.com/geraldpeng6/wonton-plugin-template | \
+      http://github.com/geraldpeng6/wonton-plugin-template | \
+      git@github.com:geraldpeng6/wonton-plugin-template | \
+      ssh://git@github.com/geraldpeng6/wonton-plugin-template)
+      echo "这里就是套件的源头，不需要 kit-update；用 git pull 更新。"
+      exit 0
+      ;;
+  esac
+  sha="$(kit_commit "${1:-main}")" || exit 1
+  stage="$(mktemp -d "$root/.kit-update.XXXXXXXX")"
+  trap 'rm -rf "$stage"' EXIT
+  mkdir -p "$stage/scripts"
+  local base="https://raw.githubusercontent.com/geraldpeng6/wonton-plugin-template/$sha"
+  info "下载开发套件 $sha"
+  curl -fsSL "$base/scripts/kit.files" -o "$stage/scripts/kit.files" || die "取不到开发套件清单（$sha）"
+  local -a files=()
+  while IFS= read -r path || [[ -n "$path" ]]; do
+    [[ "$path" =~ ^[a-zA-Z0-9_./-]+$ && "$path" != /* && "/$path/" != */../* && "/$path/" != */./* ]] ||
+      die "开发套件清单里的路径不合法：$path"
+    [[ " ${files[*]} " != *" $path "* ]] || die "开发套件清单里重复的路径：$path"
+    files+=("$path")
+    [[ "$path" != scripts/kit.files ]] || continue
+    mkdir -p "$stage/$(dirname "$path")"
+    curl -fsSL "$base/$path" -o "$stage/$path" || die "取不到开发套件文件 $path（$sha），没有替换文件"
+    case "$path" in scripts/*.sh) chmod +x "$stage/$path" ;; esac
+  done <"$stage/scripts/kit.files"
+  if ! grep -qxF scripts/kit.files "$stage/scripts/kit.files" ||
+    ! grep -qxF .github/workflows/check.yml "$stage/scripts/kit.files"; then
+    die "开发套件清单缺少 kit.files 或 check.yml"
+  fi
+  workflow="$stage/.github/workflows/check.yml"
+  sed -E "s~uses: (\./|geraldpeng6/wonton-plugin-template/)\.github/workflows/plugin-check\.yml(@[^[:space:]]+)?~uses: geraldpeng6/wonton-plugin-template/.github/workflows/plugin-check.yml@$sha~" \
+    "$workflow" >"$stage/check.yml"
+  mv "$stage/check.yml" "$workflow"
+  grep -qF "uses: geraldpeng6/wonton-plugin-template/.github/workflows/plugin-check.yml@$sha" "$workflow" ||
+    die "开发套件的 check.yml 没有可固定的工作流引用，没有替换文件"
+  printf '%s\n' "$sha" >"$stage/scripts/KIT"
+  # 所有下载和改写完成后才替换；临时目录在仓库内，mv 不跨文件系统。
+  for path in "${files[@]}" scripts/KIT; do
+    mkdir -p "$root/$(dirname "$path")"
+  done
+  for path in "${files[@]}" scripts/KIT; do
+    mv "$stage/$path" "$root/$path"
+  done
+  if [[ -f "$root/.github/workflows/plugin-check.yml" ]]; then
+    rm "$root/.github/workflows/plugin-check.yml"
+    info "已删除本地 .github/workflows/plugin-check.yml，CI 改为调用模板的固定提交。"
+  fi
+  git -C "$root" diff --stat
+)
+
+if [[ "${1:-}" == kit-update ]]; then
+  kit_update "${@:2}"
+  exit
+fi
 
 need docker curl python3
 case "${1:-}" in
@@ -458,6 +690,8 @@ case "${1:-}" in
     token
     ;;
   web) web "${@:2}" ;;
+  api) api_command "${@:2}" ;;
+  egress) egress_proxy "${@:2}" ;;
   session) session "${@:2}" ;;
   mcp) mcp "${@:2}" ;;
   smoke) "$root/scripts/smoke.sh" "${@:2}" ;;
@@ -466,6 +700,7 @@ case "${1:-}" in
     need_env
     compose down
     ;;
-  purge) purge ;;
+  reset) reset_environment "${@:2}" ;;
+  purge) purge "${@:2}" ;;
   *) usage ;;
 esac
