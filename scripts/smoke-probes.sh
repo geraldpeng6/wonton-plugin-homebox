@@ -10,15 +10,54 @@
 
 web_assert() { grep -qi 'homebox-frontend'; }   # 首页是 SPA 外壳，内嵌配置里有 homebox-frontend
 
+# 走应用专用的 OIDC 端点换会话（浏览器里 SPA 自动跳转走的就是它），identity_check 和两个数据钩子共用。
+_homebox_login() {
+  curl -sS --noproxy '*' -o /dev/null -L -b "$SMOKE_JAR" -c "$SMOKE_JAR" -H 'Accept: text/html' \
+    -w '%{url_effective}' "$SMOKE_WEB_URL/api/v1/users/login/oidc" >/dev/null ||
+    { echo "OIDC 登录链失败"; return 1; }
+}
+
 identity_check() { # 走应用专用的 OIDC 端点换会话，再调它自己的“当前用户”接口
-  local final me
-  final="$(curl -sS --noproxy '*' -o /dev/null -L -b "$SMOKE_JAR" -c "$SMOKE_JAR" -H 'Accept: text/html' \
-    -w '%{url_effective}' "$SMOKE_WEB_URL/api/v1/users/login/oidc")" ||
-    { echo "OIDC 登录链失败：$final"; return 1; }
+  local me
+  _homebox_login || return 1
   me="$(web_get /api/v1/users/self -H 'Accept: application/json')" || { echo "/api/v1/users/self 失败：$me"; return 1; }
   # OIDC 建的账号：oidcIssuer 非空；邮箱是主人的。
   jq -e --arg u "$SMOKE_OWNER" \
     '.item.oidcIssuer != null and .item.isSuperuser == false and (.item.email | startswith($u + "@"))' \
     <<<"$me" >/dev/null ||
     { echo "当前用户不是主人的 OIDC 账号：$me"; return 1; }
+}
+
+# 数据：建一个名字带随机标记的条目（落 Homebox 的 SQLite，升级后还在）。上游 v0.27 的 entity merge
+# 之后条目是“实体”：先取非位置的类型（上游至少内置 Item），再 POST /api/v1/entities。
+data_write() {
+  local marker types type_id resp id
+  [[ -n "${SMOKE_STATE:-}" ]] || { echo "SMOKE_STATE 没设"; return 1; }
+  marker="wonton-smoke-$(od -An -N4 -tx4 /dev/urandom | tr -d ' \n')"
+  _homebox_login || return 1
+  types="$(curl -sS --noproxy '*' --fail-with-body -b "$SMOKE_JAR" -H 'Accept: application/json' \
+    "$SMOKE_WEB_URL/api/v1/entity-types")" || { echo "读实体类型失败：$types"; return 1; }
+  type_id="$(jq -er '((.items // .) | [.[] | select(.isLocation != true)] | first | .id // empty)' <<<"$types")" ||
+    { echo "没有可用的条目类型：$types"; return 1; }
+  resp="$(curl -sS --noproxy '*' --fail-with-body -b "$SMOKE_JAR" -H 'Content-Type: application/json' \
+    -d '{"name":"'"$marker"'","entityTypeId":"'"$type_id"'"}' "$SMOKE_WEB_URL/api/v1/entities")" ||
+    { echo "建条目失败：$resp"; return 1; }
+  id="$(jq -er '.item.id // .id // empty' <<<"$resp")" || { echo "建条目响应里没有 id：$resp"; return 1; }
+  jq -nc --arg id "$id" --arg marker "$marker" '{id:$id,marker:$marker}' >"$SMOKE_STATE"
+}
+
+data_check() {
+  local state id marker resp code body seen
+  [[ -n "${SMOKE_STATE:-}" ]] || { echo "SMOKE_STATE 没设"; return 1; }
+  state="$(cat "$SMOKE_STATE")" || { echo "读不到 $SMOKE_STATE"; return 1; }
+  id="$(jq -r '.id' <<<"$state")"
+  marker="$(jq -r '.marker' <<<"$state")"
+  _homebox_login || return 1
+  resp="$(curl -sS --noproxy '*' -w $'\n%{http_code}' -b "$SMOKE_JAR" -H 'Accept: application/json' \
+    "$SMOKE_WEB_URL/api/v1/entities/$id")"
+  code="${resp##*$'\n'}"
+  body="${resp%$'\n'*}"
+  [[ "$code" == 200 ]] || { echo "条目 $id 读不到（HTTP $code）：$(head -c 200 <<<"$body")"; return 1; }
+  seen="$(jq -r '.item.name // .name // empty' <<<"$body")"
+  [[ "$seen" == "$marker" ]] || { echo "条目名对不上：写了 $marker，读到 $seen（$(head -c 200 <<<"$body")）"; return 1; }
 }
