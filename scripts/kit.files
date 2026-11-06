@@ -1,4 +1,7 @@
 scripts/dev.sh
+scripts/dev-mcp.sh
+scripts/dev-resources.sh
+scripts/dev_settings.py
 scripts/check.sh
 scripts/publish.sh
 scripts/lib.sh
@@ -6,3 +9,4 @@ scripts/smoke.sh
 scripts/mcp_client.py
 scripts/kit.files
 .github/workflows/check.yml
+.github/dependabot.yml
