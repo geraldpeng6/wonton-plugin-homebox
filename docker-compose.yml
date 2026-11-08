@@ -1,6 +1,26 @@
 name: homebox
 
+configs:
+  init-mail:
+    file: ./init-mail.py
+
 services:
+  # 一次性初始化：把应用里账号的邮箱同步成注入的内部邮箱。homebox 的 OIDC 登录按 issuer+sub 认
+  # 既有账号，命中后不再更新邮箱字段，核心换成内部邮箱后装好的实例要改一次；脚本幂等，首次安装
+  # 时还没有数据库，什么都不做。
+  init-mail:
+    # 只为读 SQLite：python:3.13-alpine 官方镜像（Python-2.0 许可证），homebox 镜像里没有 sqlite3，
+    # 上游也没有改邮箱的命令行或接口。
+    image: docker.io/library/python:3.13-alpine@sha256:1e1f6334529d1fb26a2ef619d7cffb30a7c7d7cc1cc7338ebee283a58d1aeaca
+    entrypoint: ["python3", "/init-mail.py"]
+    user: "${PUID}:${PGID}"
+    environment:
+      WONTON_OWNER_EMAIL: ${WONTON_OWNER_EMAIL}
+    volumes:
+      - ${WONTON_APP_DATA}:/data
+    network_mode: none
+    restart: "no"
+
   homebox:
     # 上游在 ghcr 只发 latest/main/nightly（没有版本标签），在 Docker Hub 发版本标签；这里用 Docker Hub 的
     # 版本标签 0.27.1 加清单列表摘要固定，摘要与此前 ghcr latest 固定的是同一份（逐字节相同）。
@@ -8,6 +28,9 @@ services:
     image: docker.io/sysadminsmedia/homebox:0.27.1@sha256:9d0b64776c694f018c0ca06faf52105a33ca376024f46bb58e6ab0e2b728bb61
     # 上游镜像默认 root，这里以主人的用户跑：SQLite 和附件对属主无要求，宿主上的文件归主人。
     user: "${PUID}:${PGID}"
+    depends_on:
+      init-mail:
+        condition: service_completed_successfully
     environment:
       HBOX_MODE: production
       # 数据全在 /data：SQLite 库（下面两条是上游 Dockerfile 里的 ENV，写显了免得读镜像才知道）和附件
@@ -40,9 +63,9 @@ services:
       start_interval: 1s
 
 x-wonton:
-  spec: "0.4"
+  spec: "0.11"
   id: software.homebox
-  version: 0.1.1
+  version: 0.2.0
   kind: app
   title: { en: HomeBox }
   description:
@@ -62,7 +85,7 @@ x-wonton:
       把家里的东西登记成清单：每件物品记下放在哪个位置、拍了什么照片、值多少钱、保修到什么时候。位置一层层往下分，
       每个位置和物品都有自己的资产编号和二维码，打印出来贴上，扫码就能找到。
 
-      清单存在自己家里，登录走云吞的身份，打开就是自己的清单。
+      清单存在自己家里，登录走云吞的身份，打开就是自己的清单。应用发的信（保养到期提醒）会出现在你的 Wonton 私聊里。
 
       核心升级后，插件容器会按新的签发方自动重建，打开照常，不用重装。
     en: |
@@ -71,17 +94,23 @@ x-wonton:
       QR code you can print and stick on, so finding things is a scan away.
 
       Your inventory stays at home. Sign-in goes through Wonton's identity, and it opens straight to your own
-      inventory.
+      inventory. Mail the app sends (maintenance reminders) shows up in your Wonton chat.
 
       After a core upgrade the plugin's containers are rebuilt with the new issuer automatically; pages open as before, with nothing to reinstall.
-  release_notes: { zh: "镜像改用上游的版本标签 0.27.1 固定（原来按浮动 latest 的摘要固定，内容相同，就是 2026-10-23 的安全版：上游修复了 NodeJS 的远程代码执行风险）。", en: "The image now pins upstream's version tag 0.27.1 (previously pinned by the digest of the floating latest tag — same content, the 2026-10-23 security release where upstream patched a NodeJS remote-code-execution risk)." }
+  release_notes:
+    zh: 接上云吞的内部邮箱：保养到期提醒（应用里的「通知」）可以发到你的 Wonton 私聊；装好的实例会把账号邮箱同步成内部邮箱。收件人只能写家里人的地址。
+    en: "Connects to Wonton's internal mailbox: maintenance reminders (the app's Notifiers page) can be delivered into your Wonton chat, and existing installs get the account email synced to the internal address. Recipients must be members of this home."
   webui:
     service: homebox
     port: 7745
     sso: oidc
     oidc:
       redirect_paths: [/api/v1/users/login/oidc/callback]
-  permissions: []
+  # notify：让应用能把信发进收件人的 Wonton 私聊。homebox 的发信入口是网页「通知（Notifiers）」里按人
+  # 配的 Shoutrrr smtp:// URL，不带用户名密码就不认证，直连核心邮箱服务器；它没有环境变量入口，注入的
+  # WONTON_SMTP_* compose 里用不上，但不申请 notify 核心不在插件网络里放这个服务。owner.identity 是
+  # 一次性初始化要 WONTON_OWNER_EMAIL 把应用账号的邮箱同步成内部地址（见 init-mail）。
+  permissions: [notify, owner.identity]
   secrets:
     api_key_pepper:
       generate: { bytes: 32 }
