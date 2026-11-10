@@ -18,6 +18,11 @@ HomeBox（[homebox.software](https://homebox.software)，AGPL-3.0-only）是自�
 也不表示获得 HomeBox 的合作、认可或背书。
 
 ## 先跑起来
+## 核心升级
+
+核心升级时容器会按新的签发方自动重建，不用重装；账号按已有的身份记录认回原账号，数据不动。
+
+## 先跑起来
 
 ```bash
 scripts/dev.sh up

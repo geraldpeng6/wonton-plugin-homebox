@@ -63,6 +63,8 @@ x-wonton:
       每个位置和物品都有自己的资产编号和二维码，打印出来贴上，扫码就能找到。
 
       清单存在自己家里，登录走云吞的身份，打开就是自己的清单。
+
+      核心升级后，插件容器会按新的签发方自动重建，打开照常，不用重装。
     en: |
       Register what you own as an inventory: for each item note where it is, what it looks like, what it's worth
       and when the warranty ends. Locations nest level by level; every location and item gets an asset ID and a
@@ -70,6 +72,8 @@ x-wonton:
 
       Your inventory stays at home. Sign-in goes through Wonton's identity, and it opens straight to your own
       inventory.
+
+      After a core upgrade the plugin's containers are rebuilt with the new issuer automatically; pages open as before, with nothing to reinstall.
   release_notes: { zh: "镜像改用上游的版本标签 0.27.1 固定（原来按浮动 latest 的摘要固定，内容相同，就是 2026-10-23 的安全版：上游修复了 NodeJS 的远程代码执行风险）。", en: "The image now pins upstream's version tag 0.27.1 (previously pinned by the digest of the floating latest tag — same content, the 2026-10-23 security release where upstream patched a NodeJS remote-code-execution risk)." }
   webui:
     service: homebox
