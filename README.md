@@ -9,6 +9,14 @@ HomeBox（[homebox.software](https://homebox.software)，AGPL-3.0-only）是自�
 插件用上游官方镜像 `docker.io/sysadminsmedia/homebox`（ghcr 上游不发布版本标签），按版本标签加摘要固定。清单、附件和缩略图都在插件自己的数据目录里，
 不要额外的数据库和缓存。
 
+## 应用发的信
+
+Homebox 自己会发信的功能是保养到期提醒：在应用里「通知（Notifiers）」加一条 SMTP 通知，地址填
+`smtp://smtp.wonton.internal:25/?from=software.homebox@plugins.wonton.internal&to=<你的用户名>@wonton.internal&usestarttls=No`（不填用户名密码）。
+信会出现在你的 Wonton 私聊里；收件人只能写家里人的地址，发给外面地址会被服务器当场拒收，测试通知报失败。
+
+登录只走云吞的身份，账号没有密码，所以「忘记密码」的邮件流程用不上；忘了密码就在应用里重新登录一次。
+
 ## 图标来源与许可
 
 `icon.svg` 取自 HomeBox 的官方标志（frontend/public/favicon.svg），未改颜色和比例，按插件规范补成正方形画布、等比
