@@ -139,18 +139,16 @@ _mx_wait_mail() { # <插件 id> [轮数=30]：轮询主人的私聊，等这封�
   return 1
 }
 
-_owner_email() { # 主人资料里的内部邮箱（收件人用它，不猜域名）
-  local base token me
-  base="${E2E_BASE:-${SMOKE_BASE:-}}"; token="${E2E_TOKEN:-${SMOKE_TOKEN:-}}"
-  [[ -n "$base" && -n "$token" ]] || { echo "没有核心地址或主人令牌"; return 1; }
-  me="$(curl -sS --noproxy '*' --fail-with-body -H "Authorization: Bearer $token" "$base/_wonton/api/me")" ||
-    { echo "读不到主人资料（/_wonton/api/me）"; return 1; }
-  jq -er '.email // empty' <<<"$me" || { echo "主人资料里没有邮箱：$me"; return 1; }
-}
-
 extra_check() { # 内部邮箱端到端：README 文档的 Shoutrrr URL 能真发信，测试信进 Mailpit、核心投进主人私聊后删掉
-  local to rc
-  to="$(_owner_email)" || { echo "$to"; return 1; }
+  local init_mail to rc
+  init_mail="wonton-${SMOKE_INSTANCE:-${E2E_INSTANCE:-}}--software-homebox--init-mail"
+  # 收件人用 init 注入的内部邮箱（MP_SMTP_ALLOWED_RECIPIENTS 只放行 <用户名>@wonton.internal）；
+  # /_wonton/api/me 的邮箱在开发栈是实例域形态（fill_profile 写的），会被 550 拒收。
+  # WONTON_OWNER_EMAIL 只在 init-mail 的环境里（compose 只给它配了），容器已退出，用 inspect 读。
+  to="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$init_mail" 2>/dev/null |
+    sed -n 's/^WONTON_OWNER_EMAIL=//p')" ||
+    { echo "init-mail 容器里读不到 WONTON_OWNER_EMAIL（容器 $init_mail）"; return 1; }
+  [[ -n "$to" ]] || { echo "WONTON_OWNER_EMAIL 是空"; return 1; }
   _homebox_login || return 1
 
   # README「应用发的信」一节的地址模板原样发一封测试信（应用自己的 /notifiers/test，200/204 = 发出）；
