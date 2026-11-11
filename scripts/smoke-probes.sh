@@ -10,11 +10,14 @@
 
 web_assert() { grep -qi 'homebox-frontend'; }   # 首页是 SPA 外壳，内嵌配置里有 homebox-frontend
 
-# 走应用专用的 OIDC 端点换会话（浏览器里 SPA 自动跳转走的就是它），identity_check 和两个数据钩子共用。
+# 先经开发套件建核心会话（主人令牌换网关会话），再走应用专用的 OIDC 端点换应用会话（浏览器里 SPA
+# 自动跳转走的就是它）。应用 API 都在网关后面，没有核心会话直接 401（"Sign in to Wonton first"）。
+# OIDC 链只在申请了 sso 的新版本上通；tag（无 sso）没有 OIDC 客户端，走不通就算了——
+# 网关会话已建好，网关对应用网页按会话自动登录，数据钩子照常能用。
 _homebox_login() {
-  curl -sS --noproxy '*' -o /dev/null -L -b "$SMOKE_JAR" -c "$SMOKE_JAR" -H 'Accept: text/html' \
-    -w '%{url_effective}' "$SMOKE_WEB_URL/api/v1/users/login/oidc" >/dev/null ||
-    { echo "OIDC 登录链失败"; return 1; }
+  dweb / -L -b "$SMOKE_JAR" -c "$SMOKE_JAR" -H 'Accept: text/html' >/dev/null ||
+    { echo "核心会话建立失败"; return 1; }
+  dweb /api/v1/users/login/oidc -L -b "$SMOKE_JAR" -c "$SMOKE_JAR" -H 'Accept: text/html' >/dev/null || true
 }
 
 identity_check() { # 走应用专用的 OIDC 端点换会话，再调它自己的“当前用户”接口
