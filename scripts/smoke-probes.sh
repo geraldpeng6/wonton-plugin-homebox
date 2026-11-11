@@ -153,14 +153,12 @@ extra_check() { # 内部邮箱端到端：README 文档的 Shoutrrr URL 能真�
   to="$(_owner_email)" || { echo "$to"; return 1; }
   _homebox_login || return 1
 
-  # README「应用发的信」一节的地址模板原样发一封测试信（应用自己的 /notifiers/test，204 = 发出）；
-  # 不先建 notifier：这条接口直接按 URL 发（上游契约：url 是查询参数，不是请求体），不用事后清理。
-  # Shoutrrr 的 smtp 参数：fromAddress/toAddresses 收发件人，auth=None 免认证，encryption=None 明文直连。
-  resp="$(web_get "/api/v1/notifiers/test?url=$(python3 - <<PY
-import urllib.parse
-print(urllib.parse.quote('smtp://smtp.wonton.internal:25/?fromAddress=software.homebox@plugins.wonton.internal&toAddresses=$to&auth=None&encryption=None', safe=''))
-PY
-)" -X POST -w $'\n%{http_code}')" || { echo "notifiers/test 请求失败：$resp"; return 1; }
+  # README「应用发的信」一节的地址模板原样发一封测试信（应用自己的 /notifiers/test，200/204 = 发出）；
+  # 不先建 notifier：这条接口直接按 URL 发，不用事后清理。v0.27.1 的契约是 JSON body 里的 url 字段
+  # （demo 站 swagger 是新版才改成查询参数）；URL 不带用户名密码时 Shoutrrr 免认证明文直连。
+  resp="$(web_get /api/v1/notifiers/test -X POST -H 'Content-Type: application/json' \
+    --data '{"url":"smtp://smtp.wonton.internal:25/?fromAddress=software.homebox@plugins.wonton.internal&toAddresses='"$to"'"}' \
+    -w $'\n%{http_code}')" || { echo "notifiers/test 请求失败：$resp"; return 1; }
   rc="${resp##*$'\n'}"
   [[ "$rc" == 204 || "$rc" == 200 ]] ||
     { echo "测试通知没发出去（HTTP $rc）：${resp%$'\n'*}"; return 1; }
