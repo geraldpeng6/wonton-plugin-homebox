@@ -100,6 +100,41 @@ _mp_wait() { # <jq 参数…> [轮数=20]：轮询 Mailpit 信箱直到过滤命
   return 1
 }
 
+# 核心把信投进主人的私聊后马上从内部邮箱删掉（投完才删），等“信出现在 Mailpit”有竞态：
+# 直接断言投递的结果——以主人身份读主人的 Wonton 私聊（通知房间），找这个插件发的信。
+
+_mx_curl() { # <路径> [curl 参数…]：在核心容器的网络栈里调 Tuwunel 的 Matrix 客户端接口（宿主够不着）
+  docker run --rm --network "container:wonton-${SMOKE_INSTANCE:?}--core" curlimages/curl:8.23.0 \
+    -sS --noproxy '*' --max-time 30 --fail-with-body "$@" "http://tuwunel.wonton.internal:8008$1" 2>&1
+}
+
+_mx_room_mail() { # <插件 id>：以主人身份读主人的 Wonton 私聊，输出这个插件发进来的信（结构化事件数组）
+  local core="wonton-${SMOKE_INSTANCE:?}--core" admin server room owner tok enc
+  admin="$(docker exec "$core" sh -c 'cat "$WONTON_DATA_DIR/core/matrix-admin-token"')" ||
+    { echo "拿不到核心的 Matrix 管理令牌"; return 1; }
+  server="$(docker exec "$core" sh -c 'cat "$WONTON_MATRIX_SERVER_NAME_FILE" 2>/dev/null || printf %s "${WONTON_MATRIX_SERVER_NAME:-}"')"
+  [[ -n "$server" ]] || { server="${SMOKE_BASE#*://}"; server="${server%%:*}"; }
+  room="$(docker exec "$core" sh -c 'cat "$WONTON_DATA_DIR/core/matrix-notice-room" 2>/dev/null')" ||
+    { echo "主人的通知房间还没建（还没投过信？）"; return 1; }
+  enc="$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "$room")"
+  owner="@${SMOKE_OWNER:-owner}:$server"
+  tok="$(_mx_curl "/_synapse/admin/v1/users/$owner/login" \
+    -H "Authorization: Bearer $admin" -H 'Content-Type: application/json' -d '{}' | jq -er '.access_token // empty')" ||
+    { echo "换不出主人的 Matrix 会话（impersonate 失败）"; return 1; }
+  _mx_curl "/_matrix/client/v3/rooms/$enc/messages?dir=b&limit=30" -H "Authorization: Bearer $tok" |
+    jq -c --arg id "$1" '[.chunk[] | select(.content["app.wonton.plugin_mail"].plugin_id == $id)]'
+}
+
+_mx_wait_mail() { # <插件 id> [轮数=30]：轮询主人的私聊，等这封信出现在房间里（每轮 2 秒）
+  local id="$1" n="${2:-30}" i chunk
+  for ((i = 0; i < n; i++)); do
+    chunk="$(_mx_room_mail "$id")" || { sleep 2; continue; }
+    [[ "$chunk" != "[]" ]] && { printf '%s' "$chunk"; return 0; }
+    sleep 2
+  done
+  return 1
+}
+
 _owner_email() { # 主人资料里的内部邮箱（收件人用它，不猜域名）
   local base token me
   base="${E2E_BASE:-${SMOKE_BASE:-}}"; token="${E2E_TOKEN:-${SMOKE_TOKEN:-}}"
@@ -122,11 +157,7 @@ extra_check() { # 内部邮箱端到端：README 文档的 Shoutrrr URL 能真�
   [[ "$rc" == 204 || "$rc" == 200 ]] ||
     { echo "测试通知没发出去（HTTP $rc）：smtp.wonton.internal:25 连不上或地址被拒"; return 1; }
   # shellcheck disable=SC2016  # jq 程序，不能让 bash 展开
-  _mp_wait --arg to "$to" '.messages | any(.To[].Address == $to)' ||
-    { echo "60 秒内没在内部邮箱看到收件人 $to 的 homebox 测试信"; return 1; }
-  echo "homebox 测试信已进内部邮箱（收件人 $to）"
-  # shellcheck disable=SC2016  # jq 程序，不能让 bash 展开
-  _mp_wait --arg to "$to" '(.messages | map(select(.To[].Address == $to)) | length) == 0' ||
-    { echo "信一直留在 Mailpit：核心没把它投进收件人的 Wonton 私聊（投完才会删）"; return 1; }
-  echo "核心已把 homebox 测试信投进 $to 的 Wonton 私聊"
+  _mx_wait_mail software.homebox ||
+    { echo "60 秒内没在主人的 Wonton 私聊看到 homebox 的测试信（收件人 $to）"; return 1; }
+  echo "homebox 测试信已投进 $to 的 Wonton 私聊"
 }
