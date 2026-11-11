@@ -1,6 +1,6 @@
 # 云吞插件：HomeBox
 
-开发流程见[插件开发指南](https://github.com/geraldpeng6/wonton-docs/blob/main/develop.md)。
+开发流程见[插件开发指南](https://github.com/wontonapp/wonton-docs/blob/main/develop.md)。
 
 HomeBox（[homebox.software](https://homebox.software)，AGPL-3.0-only）是自托管的家庭物品清单：把家里的东西登记成
 清单，记下放在哪个位置、拍了什么照片、值多少钱；位置和物品都编上资产号、能打印二维码标签，扫码就能找到。这个插件把它
@@ -49,7 +49,7 @@ scripts/dev.sh install
 | `scripts/publish.sh` | 发布一个版本：打 tag、推送；`images/` 里有自己构建的镜像时先构建、推送并按摘要写回（示例没有） |
 | `AGENTS.md` | 给人和 AI 编程代理的规则 |
 | `LICENSE` | 插件包自己的许可证；从模板新建时换成作者自己的名字和年份 |
-| `NOTICE` | 图标等第三方素材的许可和声明；图标是自己画的就写原创和插件许可证，见[插件规范](https://github.com/geraldpeng6/wonton-docs/blob/main/plugin-spec.md) |
+| `NOTICE` | 图标等第三方素材的许可和声明；图标是自己画的就写原创和插件许可证，见[插件规范](https://github.com/wontonapp/wonton-docs/blob/main/plugin-spec.md) |
 | `.wonton/` | 开发环境的设置、密钥和数据，不提交 |
 
 插件包是 `docker-compose.yml` 加上它引用的文件：`icon`、`settings`、`bot.avatar`、`notices` 和顶层 `configs` 的 `file`。README、
