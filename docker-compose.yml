@@ -70,10 +70,10 @@ x-wonton:
   id: software.homebox
   version: 0.2.0
   kind: app
-  title: { en: HomeBox }
+  title: { zh: 家庭物品清单（HomeBox）, en: Home Inventory (HomeBox) }
   description:
-    zh: 家庭物品清单：记下东西放在哪、拍了什么照片、值多少钱
-    en: "Home inventory: track what you own, where it is and what it's worth"
+    zh: 把家里的东西登记在册：放在哪、多少钱买的、保修到哪天，一查就知道；还能打印二维码贴上，扫一下就找到。
+    en: "A record of everything you own: where it is, what it cost and when the warranty ends. Print a QR label, stick it on, and a scan pulls up the item."
   icon: icon.svg
   notices: [NOTICE]
   screenshots: [screenshots/home.png]
