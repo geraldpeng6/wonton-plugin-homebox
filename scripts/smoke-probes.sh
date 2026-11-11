@@ -154,10 +154,13 @@ extra_check() { # 内部邮箱端到端：README 文档的 Shoutrrr URL 能真�
   _homebox_login || return 1
 
   # README「应用发的信」一节的地址模板原样发一封测试信（应用自己的 /notifiers/test，204 = 发出）；
-  # 不先建 notifier：这条接口直接按 URL 发，不用事后清理
-  rc="$(web_get /api/v1/notifiers/test -X POST -H 'Content-Type: application/json' \
-    --data "{\"url\":\"smtp://smtp.wonton.internal:25/?from=software.homebox@plugins.wonton.internal&to=$to&usestarttls=No\"}" \
-    -o /dev/null -w '%{http_code}')" || { echo "notifiers/test 请求失败"; return 1; }
+  # 不先建 notifier：这条接口直接按 URL 发（上游契约：url 是查询参数，不是请求体），不用事后清理。
+  # Shoutrrr 的 smtp 参数用全名 fromAddress/toAddresses，authType=None 免认证。
+  rc="$(web_get "/api/v1/notifiers/test?url=$(python3 - <<PY
+import urllib.parse
+print(urllib.parse.quote('smtp://smtp.wonton.internal:25/?fromAddress=software.homebox@plugins.wonton.internal&toAddresses=$to&authType=None', safe=''))
+PY
+)" -X POST -o /dev/null -w '%{http_code}')" || { echo "notifiers/test 请求失败"; return 1; }
   [[ "$rc" == 204 || "$rc" == 200 ]] ||
     { echo "测试通知没发出去（HTTP $rc）：smtp.wonton.internal:25 连不上或地址被拒"; return 1; }
   # shellcheck disable=SC2016  # jq 程序，不能让 bash 展开
