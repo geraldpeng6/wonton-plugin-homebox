@@ -114,9 +114,11 @@ extra_check() { # 内部邮箱端到端：README 文档的 Shoutrrr URL 能真�
     -o /dev/null -w '%{http_code}')" || { echo "notifiers/test 请求失败"; return 1; }
   [[ "$rc" == 204 || "$rc" == 200 ]] ||
     { echo "测试通知没发出去（HTTP $rc）：smtp.wonton.internal:25 连不上或地址被拒"; return 1; }
+  # shellcheck disable=SC2016  # jq 程序，不能让 bash 展开
   _mp_wait --arg to "$to" '.messages | any(.To[].Address == $to)' ||
     { echo "60 秒内没在内部邮箱看到收件人 $to 的 homebox 测试信"; return 1; }
   echo "homebox 测试信已进内部邮箱（收件人 $to）"
+  # shellcheck disable=SC2016  # jq 程序，不能让 bash 展开
   _mp_wait --arg to "$to" '(.messages | map(select(.To[].Address == $to)) | length) == 0' ||
     { echo "信一直留在 Mailpit：核心没把它投进收件人的 Wonton 私聊（投完才会删）"; return 1; }
   echo "核心已把 homebox 测试信投进 $to 的 Wonton 私聊"
