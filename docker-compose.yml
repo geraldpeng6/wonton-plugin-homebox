@@ -13,6 +13,9 @@ services:
     # 上游也没有改邮箱的命令行或接口。
     image: docker.io/library/python:3.13-alpine@sha256:1e1f6334529d1fb26a2ef619d7cffb30a7c7d7cc1cc7338ebee283a58d1aeaca
     entrypoint: ["python3", "/init-mail.py"]
+    configs:
+      - source: init-mail
+        target: /init-mail.py
     user: "${PUID}:${PGID}"
     environment:
       WONTON_OWNER_EMAIL: ${WONTON_OWNER_EMAIL}
