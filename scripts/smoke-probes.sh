@@ -74,9 +74,8 @@ _mp_api() { # <路径>：调 Mailpit 的 HTTP API（basic core:<api-password>）
   local core pw dd out
   core="wonton-${SMOKE_INSTANCE:?}--core"
   docker inspect "$core" >/dev/null 2>&1 || { echo "找不到核心容器 $core"; return 1; }
-  if declare -F read_env >/dev/null; then dd="$(read_env WONTON_DATA_DIR)"
-  elif declare -F probes_setting >/dev/null; then dd="$(probes_setting WONTON_DATA_DIR)"
-  else echo "读不到 WONTON_DATA_DIR（read_env / probes_setting 都没有）"; return 1; fi
+  dd="$(docker exec "$core" printenv WONTON_DATA_DIR 2>/dev/null)"
+  [[ -n "$dd" ]] || { echo "核心容器没有 WONTON_DATA_DIR"; return 1; }
   pw="$(docker exec "$core" cat "$dd/core/mailpit/api-password" 2>/dev/null)"
   [[ -n "$pw" ]] || { echo "读不到 Mailpit API 密码（核心数据目录 core/mailpit/api-password）"; return 1; }
   out="$(docker run --rm --network "container:$core" curlimages/curl:8.23.0 \
@@ -141,7 +140,7 @@ _mx_wait_mail() { # <插件 id> [轮数=30]：轮询主人的私聊，等这封�
 
 extra_check() { # 内部邮箱端到端：README 文档的 Shoutrrr URL 能真发信，测试信进 Mailpit、核心投进主人私聊后删掉
   local init_mail to rc
-  init_mail="wonton-${SMOKE_INSTANCE:-${E2E_INSTANCE:-}}--software-homebox--init-mail"
+  init_mail="wonton-${SMOKE_INSTANCE:?}--software-homebox--init-mail"
   # 收件人用 init 注入的内部邮箱（MP_SMTP_ALLOWED_RECIPIENTS 只放行 <用户名>@wonton.internal）；
   # /_wonton/api/me 的邮箱在开发栈是实例域形态（fill_profile 写的），会被 550 拒收。
   # WONTON_OWNER_EMAIL 只在 init-mail 的环境里（compose 只给它配了），容器已退出，用 inspect 读。
